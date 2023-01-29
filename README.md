@@ -19,5 +19,8 @@ This small script will help you build your favourite cross-compiler and its necc
     + [env | setup-enviroment-only]: Only setup enviroment
     (Can combine 'binutils', 'gcc', 'gdb' and 'env')
 # How to use
-Simply just type run toolchain.sh and wait for it to complete. Default target will be $HOSTTYPE-elf target, change it if you need other target by --target flag. Every build will be in $HOME/build-$TARGET. Specify -s to install to system (need root privilege) That's all.
+Simply just type run toolchain.sh and wait for it to complete. 
+Default target will be $HOSTTYPE-elf target, change it if you need other target by --target flag. Every build will be in $HOME/build-$TARGET. 
+Specify -s to install to system (need root privilege). 
+That's all.
     
