@@ -23,9 +23,9 @@ NEEDED_DEPS=("build-essential" "bison" "flex" "libgmp3-dev" "libmpc-dev" "libmpf
             "texinfo" "libisl-dev" "g++" "libssl-dev" "make" "wget" "libipt-dev" \ 
              "expat" "python3" "pkg-config")
 
-BINUTILS_VER=2.38
-GCC_VER=11.3.0
-GDB_VER=12.1
+BINUTILS_VER=`ld --version | grep ld | awk '{print $7}'`
+GCC_VER=`gcc --version | grep gcc | awk '{print $4}'`
+GDB_VER=`gdb --version | grep gdb | awk '{print $5}'`
 
 EXITED=false
 execution_end() {
@@ -46,6 +46,12 @@ execution_end() {
                 let runtime_min=runtime_min-1;
             fi
         fi
+    fi
+
+    if [[ $runtime_sec -ge 60 ]]; then
+        tmp=$runtime_sec%60;
+        let runtime_min=runtime_min+($runtime_sec/60);
+        let runtime_sec=$tmp;
     fi
 
     printf "\n${MSG_PREFIX} ${INFO}Process finished in ${runtime_min}m${runtime_sec}.${runtime_mil}s${RESET_COLOR}\n"
@@ -99,6 +105,12 @@ BUILD_TO_SYSTEM=false
 
 set -e
 
+SUDO=''
+if (( $EUID != 0 )); then
+    SUDO='sudo'
+fi
+
+
 if [ $# -eq 0 ]; then
     BUILD_BINUTILS=true
     BUILD_GCC=true
@@ -145,20 +157,21 @@ BINUTILS_CONFIG="--target=$TARGET --prefix=$PREFIX --with-sysroot --disable-nls"
 GCC_CONFIG="--target=$TARGET --prefix=$PREFIX --disable-nls --enable-languages=c,c++ --without-headers"
 GDB_CONFIG="--target=$TARGET --prefix=$PREFIX --disable-werror"
 
+install_package() {
+    printf "${MSG_PREFIX} ${INFO}Installing '${WHITE}$1${INFO}'...\n${RESET_COLOR}"
+    $SUDO apt-get install $1 -y >/dev/null 2>&1;
+    printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
+}
+
+package_ok() {
+    printf "${MSG_PREFIX} ${INFO}Package '${WHITE}$1${INFO}' is already installed\n${RESET_COLOR}";
+}
 
 install_deps() {
     printf "${MSG_PREFIX} ${INFO}Checking enviroment requirements...\n${RESET_COLOR}"
     for pkg in ${NEEDED_DEPS[@]};
     do
-        PKG_OK=$(dpkg-query -W --showformat='${db:Status-Status}' "$pkg")
-        if [[ "" == "$PKG_OK" ]];
-        then
-            printf "${MSG_PREFIX} ${INFO}Installing '${WHITE}$pkg${INFO}'...\n${RESET_COLOR}"
-            sudo apt-get install $pkg -y >/dev/null 2>&1;
-            printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
-        else
-            printf "${MSG_PREFIX} ${INFO}Package '${WHITE}$pkg${INFO}' is already installed\n${RESET_COLOR}";
-        fi
+        dpkg -s $pkg 2>&1 >/dev/null | grep "install ok installed" && package_ok $pkg || install_package $pkg;
     done
 
     printf "${MSG_PREFIX} ${SUCCESS}Installed all neccessary dependencies\n\n${RESET_COLOR}"
@@ -209,11 +222,11 @@ buildBinutils() {
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
 
         printf "${MSG_PREFIX} ${INFO}Building...\n${RESET_COLOR}";
-        sudo make -j16 > ../binutils_build.log
+        $SUDO make -j16 > ../binutils_build.log 2>&1
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
 
         printf "${MSG_PREFIX} ${INFO}Installing...\n${RESET_COLOR}";
-        sudo make install > ../binutils_install.log
+        $SUDO make install > ../binutils_install.log 2>&1
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
     else
         printf "${MSG_PREFIX} ${INFO}Skipping binutils...\n\n"
@@ -234,19 +247,19 @@ buildGCC() {
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
 
         printf "${MSG_PREFIX} ${INFO}Building gcc...\n${RESET_COLOR}";
-        sudo make all-gcc -j16 > ../gcc_build.log
+        $SUDO make all-gcc -j16 > ../gcc_build.log 2>&1
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
 
         printf "${MSG_PREFIX} ${INFO}Building libgcc...\n${RESET_COLOR}";
-        sudo make all-target-libgcc -j16 > ../gcc_libgcc_build.log
+        $SUDO make all-target-libgcc -j16 > ../gcc_libgcc_build.log 2>&1
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
 
         printf "${MSG_PREFIX} ${INFO}Installing gcc...\n${RESET_COLOR}";
-        sudo make install-gcc > ../gcc_install.log
+        $SUDO make install-gcc > ../gcc_install.log 2>&1
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
 
         printf "${MSG_PREFIX} ${INFO}Installing libgcc...\n${RESET_COLOR}";
-        sudo make install-target-libgcc > ../gcc_libgcc_install.log
+        $SUDO make install-target-libgcc > ../gcc_libgcc_install.log 2>&1
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
     else
         printf "${MSG_PREFIX} ${INFO}Skipping gcc...\n\n"
@@ -267,11 +280,11 @@ buildGDB() {
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
 
         printf "${MSG_PREFIX} ${INFO}Building...\n${RESET_COLOR}";
-        sudo make all-gdb -j16 > ../gdb_build.log
+        $SUDO make all-gdb -j16 > ../gdb_build.log 2>&1
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
 
         printf "${MSG_PREFIX} ${INFO}Installing...\n${RESET_COLOR}";
-        sudo make install-gdb -j16 > ../gdb_install.log
+        $SUDO make install-gdb -j16 > ../gdb_install.log 2>&1
         printf "${MSG_PREFIX} ${SUCCESS}Done.${RESET_COLOR}\n";
     else
         printf "${MSG_PREFIX} ${INFO}Skipping gdb...\n\n"
@@ -280,16 +293,16 @@ buildGDB() {
 }
 
 main() {
-    source ~/.bashrc
+    source $HOME/.bashrc
     if [[ $BUILD_ALL == true ]]; then
         BUILD_GCC=true;
         BUILD_BINUTILS=true;
         BUILD_GDB=true;
     fi
 
-    sudo rm -rf $BUILD_DIR
+    $SUDO rm -rf $BUILD_DIR
 
-    printf "\e[4;94mBuild cross-toolchains utilities by NeonLightions${RESET_COLOR}\n";
+    printf "\n        \e[4;94mBUILD CROSS-TOOLCHAINS UTILITY BY NeonLightions${RESET_COLOR}       \n\n";
     printf "${MSG_PREFIX} ${INFO}Preparing to install '${WHITE}${TARGET}${INFO}'...\n${RESET_COLOR}"
     printf "${MSG_PREFIX} ${INFO}Configuration:\n${RESET_COLOR}";
     printf "    TARGET              $TARGET\n";
@@ -315,14 +328,11 @@ main() {
         fi
     fi
 
-    source $HOME/.bashrc
     if [[ ! "${PATH//:/}" =~ "$PREFIX/bin" ]]; then
-        source ~/.bashrc; 
-        echo "export PATH=\"$PATH:$PREFIX/bin\"" >> ~/.bashrc; 
-        source ~/.bashrc;
+        source $HOME/.bashrc; 
+        echo "export PATH=\"$PATH:$PREFIX/bin\"" >> $HOME/.bashrc; 
+        source $HOME/.bashrc;
     fi
-    source $HOME/.bashrc
-
     
     install_deps
 
